@@ -36,22 +36,34 @@ impl fmt::Display for TokenError {
 }
 
 pub fn tokenize(program: &str) -> Result<Vec<Token>, TokenError> {
-    let re = Regex::new(r"(\(|\)|\d+(\.\d+)?|[^\s()]+)").unwrap();
+    // let re = Regex::new(r"(\(|\)|\d+(\.\d+)?|[^\s()]+)").unwrap();
+    let re = Regex::new(
+        r#"(?x)
+    (?P<number> -? \d+ (\.\d+)?)
+    | (?P<symbol> [^\s()]+)
+    | (?P<lp>\()
+    | (?P<rp>\))
+"#,
+    )
+    .unwrap();
     let tokens: Vec<Token> = re
         .captures_iter(program)
-        .map(|captures| {
-            let token = captures.get(0).unwrap().as_str();
-            match token {
-                "(" => Token::LParen,
-                ")" => Token::RParen,
-                num_str if num_str.chars().all(|c| c.is_digit(10) || c == '.') => {
-                    let num = f64::from_str(num_str).unwrap();
-                    Token::Number(num)
-                }
-                _ => Token::Symbol(token.to_string()),
+        .filter_map(|captures| {
+            if let Some(num) = captures.name("number") {
+                let num_str = num.as_str();
+                let n = num_str.parse::<f64>().unwrap();
+                Some(Ok(Token::Number(n)))
+            } else if let Some(symbol) = captures.name("symbol") {
+                Some(Ok(Token::Symbol(symbol.as_str().to_string())))
+            } else if captures.name("lp").is_some() {
+                Some(Ok(Token::LParen))
+            } else if captures.name("rp").is_some() {
+                Some(Ok(Token::RParen))
+            } else {
+                Some(Err(TokenError { ch: ' ' }))
             }
         })
-        .collect();
+        .collect::<Result<Vec<Token>, TokenError>>()?;
     Ok(tokens)
 }
 
@@ -61,13 +73,29 @@ mod tests {
 
     #[test]
     fn test_one_simple_sexpr() {
-        let tokens = tokenize("(print 5)").unwrap();
+        let tokens = tokenize("(let x 5)").unwrap();
         assert_eq!(
             tokens,
             vec![
                 Token::LParen,
-                Token::Symbol("print".to_string()),
+                Token::Symbol("let".to_string()),
+                Token::Symbol("x".to_string()),
                 Token::Number(5.),
+                Token::RParen
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_negative_number() {
+        let tokens = tokenize("(let x -5)").unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::LParen,
+                Token::Symbol("let".to_string()),
+                Token::Symbol("x".to_string()),
+                Token::Number(-5.),
                 Token::RParen
             ]
         );
